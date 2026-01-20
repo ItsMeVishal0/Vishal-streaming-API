@@ -5,29 +5,26 @@ import hashlib
 import json
 import asyncio
 import logging
-from typing import Dict, List, Optional, Tuple, Any, Callable
+from typing import Dict, List, Optional, Tuple, Any
 from urllib.parse import urlparse, parse_qs
 import aiohttp
-from datetime import datetime, timedelta
-from functools import wraps
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import psutil
 import gc
-import yt_dlp  # ✅ यह import जोड़ें
+import yt_dlp
 
 from config import config
 
 logger = logging.getLogger(__name__)
 
 class YouTubeUtils:
-    """Advanced YouTube utilities with caching and performance optimizations"""
+    """YouTube utilities with caching"""
     
-    # URL patterns cache
     _url_patterns = None
     
     @classmethod
     def _get_url_patterns(cls):
-        """Lazy load URL patterns"""
         if cls._url_patterns is None:
             cls._url_patterns = [
                 r'^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+$',
@@ -44,9 +41,7 @@ class YouTubeUtils:
     
     @staticmethod
     def is_valid_youtube_url(url: str) -> bool:
-        """Validate YouTube URL with pattern caching"""
         patterns = YouTubeUtils._get_url_patterns()
-        
         for pattern in patterns:
             if re.match(pattern, url, re.IGNORECASE):
                 return True
@@ -54,8 +49,6 @@ class YouTubeUtils:
     
     @staticmethod
     def extract_video_id(url: str) -> Optional[str]:
-        """Extract video ID from URL with multiple pattern support"""
-        # Pre-compiled patterns for better performance
         patterns = [
             (r'(?:v=|\/)([\w-]{11})', 'v'),
             (r'embed\/([\w-]{11})', 'embed'),
@@ -70,7 +63,6 @@ class YouTubeUtils:
             if match:
                 return match.group(1)
         
-        # Try parsing query parameters
         try:
             parsed = urlparse(url)
             if parsed.hostname and any(domain in parsed.hostname for domain in ['youtube.com', 'youtu.be']):
@@ -84,19 +76,15 @@ class YouTubeUtils:
     
     @staticmethod
     def clean_title(title: str) -> str:
-        """Clean video title for filename with unicode support"""
         if not title:
             return "untitled"
         
-        # Remove invalid filename characters
         invalid_chars = r'<>:"/\\|?*'
         for char in invalid_chars:
             title = title.replace(char, '')
         
-        # Replace multiple spaces
         title = re.sub(r'\s+', ' ', title).strip()
         
-        # Limit length
         if len(title) > 100:
             title = title[:97] + '...'
         
@@ -104,7 +92,6 @@ class YouTubeUtils:
     
     @staticmethod
     def format_duration(seconds: int) -> str:
-        """Format duration in seconds to HH:MM:SS or MM:SS"""
         if not seconds:
             return "0:00"
         
@@ -119,44 +106,38 @@ class YouTubeUtils:
     
     @staticmethod
     async def search_youtube_async(query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Async YouTube search with fallback methods"""
         try:
-            # Method 1: Try youtubesearchpython
-            try:
-                from youtubesearchpython import VideosSearch
-                
-                loop = asyncio.get_event_loop()
-                with ThreadPoolExecutor() as executor:
-                    search = await loop.run_in_executor(
-                        executor, 
-                        lambda: VideosSearch(query, limit=limit)
-                    )
-                    data = await loop.run_in_executor(
-                        executor,
-                        lambda: search.result()
-                    )
-                
-                if data and "result" in data:
-                    videos = []
-                    for v in data["result"][:limit]:
-                        if v and v.get("id"):
-                            video_id = YouTubeUtils.extract_video_id(v.get("link", "")) or v.get("id")
-                            videos.append({
-                                'video_id': video_id,
-                                'title': v.get("title", "No Title"),
-                                'url': f"https://youtube.com/watch?v={video_id}",
-                                'duration': YouTubeUtils.parse_duration_string(v.get("duration", "0:00")),
-                                'duration_formatted': v.get("duration", "0:00"),
-                                'thumbnail': v.get("thumbnails", [{}])[0].get("url") if v.get("thumbnails") else "",
-                                'channel': v.get("channel", {}).get("name", "Unknown Channel"),
-                                'view_count': v.get("viewCount", {}).get("text", "0 views") if isinstance(v.get("viewCount"), dict) else "0 views",
-                                'upload_date': v.get("publishedTime", "Unknown"),
-                            })
-                    return videos
-            except ImportError:
-                pass
+            from youtubesearchpython import VideosSearch
             
-            # Method 2: Try yt-dlp search
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                search = await loop.run_in_executor(
+                    executor, 
+                    lambda: VideosSearch(query, limit=limit)
+                )
+                data = await loop.run_in_executor(
+                    executor,
+                    lambda: search.result()
+                )
+            
+            if data and "result" in data:
+                videos = []
+                for v in data["result"][:limit]:
+                    if v and v.get("id"):
+                        video_id = YouTubeUtils.extract_video_id(v.get("link", "")) or v.get("id")
+                        videos.append({
+                            'video_id': video_id,
+                            'title': v.get("title", "No Title"),
+                            'url': f"https://youtube.com/watch?v={video_id}",
+                            'duration': YouTubeUtils.parse_duration_string(v.get("duration", "0:00")),
+                            'duration_formatted': v.get("duration", "0:00"),
+                            'thumbnail': v.get("thumbnails", [{}])[0].get("url") if v.get("thumbnails") else "",
+                            'channel': v.get("channel", {}).get("name", "Unknown Channel"),
+                            'view_count': v.get("viewCount", {}).get("text", "0 views") if isinstance(v.get("viewCount"), dict) else "0 views",
+                            'upload_date': v.get("publishedTime", "Unknown"),
+                        })
+                return videos
+        except ImportError:
             try:
                 ydl_opts = {
                     'quiet': True,
@@ -193,10 +174,8 @@ class YouTubeUtils:
                             'url': f"https://youtube.com/watch?v={entry.get('id')}",
                         })
                 return results
-                
             except Exception as e:
                 logger.error(f"yt-dlp search failed: {e}")
-                
         except Exception as e:
             logger.error(f"Search error: {e}")
         
@@ -204,25 +183,22 @@ class YouTubeUtils:
     
     @staticmethod
     def parse_duration_string(duration_str: str) -> int:
-        """Parse duration string to seconds with robust error handling"""
         if not duration_str:
             return 0
         
         try:
-            # Handle formats like "1:23:45", "5:30", "123"
             parts = duration_str.split(':')
             
-            if len(parts) == 3:  # HH:MM:SS
+            if len(parts) == 3:
                 hours, minutes, seconds = map(int, parts)
                 return hours * 3600 + minutes * 60 + seconds
-            elif len(parts) == 2:  # MM:SS
+            elif len(parts) == 2:
                 minutes, seconds = map(int, parts)
                 return minutes * 60 + seconds
-            elif len(parts) == 1:  # SS or just number
+            elif len(parts) == 1:
                 try:
                     return int(parts[0])
                 except:
-                    # Try to extract numbers from string
                     numbers = re.findall(r'\d+', parts[0])
                     if numbers:
                         return int(numbers[0])
@@ -234,7 +210,6 @@ class YouTubeUtils:
     
     @staticmethod
     def format_file_size(size_bytes: int) -> str:
-        """Format file size in human readable format"""
         if not size_bytes:
             return "0 B"
         
@@ -246,7 +221,7 @@ class YouTubeUtils:
 
 
 class RateLimiter:
-    """Advanced rate limiter with sliding window and Redis support"""
+    """Rate limiter with sliding window"""
     
     def __init__(self):
         self.requests = {}
@@ -258,36 +233,29 @@ class RateLimiter:
         }
     
     async def check_limit(self, client_ip: str) -> bool:
-        """Check if client is within rate limits with sliding window"""
         async with self.lock:
             current_time = time.time()
-            window_start = current_time - 60  # 1 minute window
+            window_start = current_time - 60
             
-            # Clean old entries
             self.requests = {
                 ip: [(ts, count) for ts, count in timestamps if ts > window_start]
                 for ip, timestamps in self.requests.items()
                 if any(ts > window_start for ts, _ in timestamps)
             }
             
-            # Get or create request list for this IP
             if client_ip not in self.requests:
                 self.requests[client_ip] = []
             
-            # Count requests in window
             request_count = sum(count for ts, count in self.requests[client_ip] if ts > window_start)
             
-            # Check limit
             if request_count >= config.MAX_REQUESTS_PER_MINUTE:
                 self.stats['blocked_requests'] += 1
                 self.stats['by_ip'][client_ip] = self.stats['by_ip'].get(client_ip, 0) + 1
                 return False
             
-            # Add new request
             self.requests[client_ip].append((current_time, 1))
             self.stats['total_requests'] += 1
             
-            # Trim old entries for this IP
             self.requests[client_ip] = [
                 (ts, count) for ts, count in self.requests[client_ip] 
                 if ts > window_start
@@ -296,23 +264,21 @@ class RateLimiter:
             return True
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get rate limiter statistics"""
         return {
             'total_requests': self.stats['total_requests'],
             'blocked_requests': self.stats['blocked_requests'],
             'active_ips': len(self.requests),
-            'by_ip': dict(list(self.stats['by_ip'].items())[:10])  # Top 10
+            'by_ip': dict(list(self.stats['by_ip'].items())[:10])
         }
     
     async def reset_ip(self, client_ip: str):
-        """Reset rate limit for specific IP"""
         async with self.lock:
             if client_ip in self.requests:
                 del self.requests[client_ip]
 
 
 class Cache:
-    """Advanced LRU cache with TTL and memory management"""
+    """LRU cache with TTL"""
     
     def __init__(self):
         self.cache = {}
@@ -326,20 +292,16 @@ class Cache:
         }
     
     async def get(self, key: str) -> Optional[Any]:
-        """Get value from cache with LRU update"""
         async with self.lock:
             if key in self.cache:
                 entry = self.cache[key]
                 timestamp, value, size = entry
                 
-                # Check TTL
                 if time.time() - timestamp < config.CACHE_TTL:
-                    # Update access time for LRU
                     self.access_times[key] = time.time()
                     self.stats['hits'] += 1
                     return value
                 else:
-                    # Expired, remove
                     del self.cache[key]
                     del self.access_times[key]
                     self.stats['size_bytes'] -= size
@@ -349,18 +311,14 @@ class Cache:
             return None
     
     async def set(self, key: str, value: Any, size: int = 0):
-        """Set value in cache with size tracking"""
         async with self.lock:
-            # Calculate size if not provided
             if size == 0:
                 try:
                     size = len(str(value).encode('utf-8'))
                 except:
-                    size = 1024  # Default size
+                    size = 1024
             
-            # Check if we need to evict
             while len(self.cache) >= config.MAX_CACHE_SIZE:
-                # LRU eviction
                 if self.access_times:
                     oldest_key = min(self.access_times.items(), key=lambda x: x[1])[0]
                     if oldest_key in self.cache:
@@ -370,7 +328,6 @@ class Cache:
                         self.stats['size_bytes'] -= old_size
                         self.stats['evictions'] += 1
                 else:
-                    # Fallback: remove random key
                     key_to_remove = next(iter(self.cache))
                     old_size = self.cache[key_to_remove][2]
                     del self.cache[key_to_remove]
@@ -379,13 +336,11 @@ class Cache:
                     self.stats['size_bytes'] -= old_size
                     self.stats['evictions'] += 1
             
-            # Add new entry
             self.cache[key] = (time.time(), value, size)
             self.access_times[key] = time.time()
             self.stats['size_bytes'] += size
     
     async def delete(self, key: str):
-        """Delete key from cache"""
         async with self.lock:
             if key in self.cache:
                 size = self.cache[key][2]
@@ -395,7 +350,6 @@ class Cache:
                 self.stats['size_bytes'] -= size
     
     async def clear(self):
-        """Clear all cache"""
         async with self.lock:
             self.cache.clear()
             self.access_times.clear()
@@ -403,7 +357,6 @@ class Cache:
             self.stats['evictions'] = 0
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get cache statistics"""
         return {
             'size': len(self.cache),
             'hits': self.stats['hits'],
@@ -417,27 +370,18 @@ class Cache:
 
 
 class SystemMonitor:
-    """System resource monitor for Render"""
+    """System resource monitor"""
     
     @staticmethod
     def get_system_stats() -> Dict[str, Any]:
-        """Get system statistics"""
         try:
             process = psutil.Process()
             
-            # Memory usage
             memory = process.memory_info()
-            
-            # CPU usage
             cpu_percent = process.cpu_percent(interval=0.1)
-            
-            # Disk usage
             disk_usage = psutil.disk_usage('/')
-            
-            # Network (if available)
             net_io = psutil.net_io_counters()
             
-            # Python GC stats
             gc_stats = {
                 'objects': len(gc.get_objects()),
                 'collected': gc.collect(),
@@ -476,29 +420,22 @@ class SystemMonitor:
 
 
 class YouTubeDownloader:
-    """Advanced YouTube downloader with multiple extraction strategies"""
+    """YouTube downloader with extraction strategies"""
     
     _executor = ThreadPoolExecutor(max_workers=4)
     
     @staticmethod
     def get_ydl_options(video_type: str = "video", quality: str = "best", 
                        use_cookies: bool = True) -> Dict[str, Any]:
-        """Get optimized yt-dlp options for Render"""
         ydl_opts = config.YTDLP_DEFAULT_OPTS.copy()
         
-        # Add cookies if available and requested
         if use_cookies and config.COOKIES_FILE and os.path.exists(config.COOKIES_FILE):
             ydl_opts['cookiefile'] = config.COOKIES_FILE
-            logger.info(f"Using cookies from {config.COOKIES_FILE}")
         
-        # Add proxy if configured
         if config.PROXY:
             ydl_opts['proxy'] = config.PROXY
-            logger.info(f"Using proxy: {config.PROXY}")
         
-        # Format selection
         if video_type == "audio":
-            # Multiple audio format fallbacks
             ydl_opts['format'] = (
                 'bestaudio[ext=m4a]/'
                 'bestaudio[ext=webm]/'
@@ -507,7 +444,6 @@ class YouTubeDownloader:
             )
             ydl_opts['postprocessors'] = []
             
-            # Enhanced extractor settings for audio
             ydl_opts['extractor_args']['youtube'].update({
                 'player_client': ['android', 'ios', 'web', 'tvhtml5_simple'],
                 'player_skip': ['configs', 'webpage', 'js'],
@@ -515,7 +451,6 @@ class YouTubeDownloader:
             })
             
         elif video_type == "video":
-            # Video format selection based on quality
             quality_map = {
                 "low": "best[height<=360][filesize<50M]",
                 "medium": "best[height<=480][filesize<100M]",
@@ -525,9 +460,8 @@ class YouTubeDownloader:
             }
             ydl_opts['format'] = quality_map.get(quality, quality_map["best"])
         
-        # Render-specific optimizations
-        ydl_opts['concurrent_fragment_downloads'] = 2  # Reduced for Render
-        ydl_opts['http_chunk_size'] = 1048576  # 1MB chunks
+        ydl_opts['concurrent_fragment_downloads'] = 2
+        ydl_opts['http_chunk_size'] = 1048576
         ydl_opts['no_resize_buffer'] = True
         ydl_opts['no_part'] = True
         
@@ -536,13 +470,11 @@ class YouTubeDownloader:
     @classmethod
     async def get_stream_info(cls, url: str, video_type: str = "video", 
                             quality: str = "best") -> Dict[str, Any]:
-        """Get streaming information with async execution"""
         try:
             video_id = youtube_utils.extract_video_id(url)
             if not video_id:
                 return {'status': 'error', 'message': 'Invalid YouTube URL'}
             
-            # Check cache
             cache_key = f"{video_id}:{video_type}:{quality}"
             cached_data = await cache.get(cache_key)
             if cached_data:
@@ -551,16 +483,14 @@ class YouTubeDownloader:
             
             logger.info(f"Processing: {video_id} | Type: {video_type} | Quality: {quality}")
             
-            # Run yt-dlp in thread pool
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 cls._executor,
                 lambda: cls._extract_info_sync(url, video_type, quality)
             )
             
-            # Cache successful results
             if result.get('status') == 'success':
-                await cache.set(cache_key, result, size=10240)  # 10KB estimated size
+                await cache.set(cache_key, result, size=10240)
             
             return result
             
@@ -574,18 +504,15 @@ class YouTubeDownloader:
     
     @staticmethod
     def _extract_info_sync(url: str, video_type: str, quality: str) -> Dict[str, Any]:
-        """Synchronous yt-dlp extraction"""
         try:
             video_id = YouTubeUtils.extract_video_id(url)
             
-            # Try with cookies first
             ydl_opts = YouTubeDownloader.get_ydl_options(video_type, quality, use_cookies=True)
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 
                 if not info:
-                    # Try without cookies
                     ydl_opts = YouTubeDownloader.get_ydl_options(video_type, quality, use_cookies=False)
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl_no_cookies:
                         info = ydl_no_cookies.extract_info(url, download=False)
@@ -593,7 +520,6 @@ class YouTubeDownloader:
                 if not info:
                     return {'status': 'error', 'message': 'Could not extract video info'}
                 
-                # Build result
                 result = {
                     'status': 'success',
                     'video_id': video_id,
@@ -616,15 +542,12 @@ class YouTubeDownloader:
                     'live_status': info.get('live_status', 'not_live'),
                 }
                 
-                # Get formats
                 formats = info.get('formats', [])
                 
                 if video_type == "audio":
-                    # Find best audio format
                     audio_formats = [f for f in formats if f.get('acodec') != 'none']
                     
                     if audio_formats:
-                        # Sort by bitrate and codec
                         audio_formats.sort(
                             key=lambda x: (
                                 x.get('abr', 0) or x.get('tbr', 0) or 0,
@@ -656,59 +579,52 @@ class YouTubeDownloader:
                     else:
                         return {'status': 'error', 'message': 'No audio format found'}
                 
-                else:  # video
-                    # Find best video format based on quality
+                else:
                     video_formats = [f for f in formats if f.get('vcodec') != 'none']
                     
+                    if quality == "low":
+                        video_formats = [f for f in video_formats 
+                                       if f.get('height', 0) <= 360]
+                    elif quality == "medium":
+                        video_formats = [f for f in video_formats 
+                                       if f.get('height', 0) <= 480]
+                    elif quality == "high":
+                        video_formats = [f for f in video_formats 
+                                       if f.get('height', 0) <= 720]
+                    
+                    video_formats.sort(
+                        key=lambda x: (
+                            x.get('height', 0) or 0,
+                            x.get('width', 0) or 0,
+                            x.get('fps', 0) or 0,
+                            x.get('tbr', 0) or 0
+                        ),
+                        reverse=True
+                    )
+                    
                     if video_formats:
-                        # Filter by quality if specified
-                        if quality == "low":
-                            video_formats = [f for f in video_formats 
-                                           if f.get('height', 0) <= 360]
-                        elif quality == "medium":
-                            video_formats = [f for f in video_formats 
-                                           if f.get('height', 0) <= 480]
-                        elif quality == "high":
-                            video_formats = [f for f in video_formats 
-                                           if f.get('height', 0) <= 720]
-                        
-                        # Sort by resolution, FPS, and bitrate
-                        video_formats.sort(
-                            key=lambda x: (
-                                x.get('height', 0) or 0,
-                                x.get('width', 0) or 0,
-                                x.get('fps', 0) or 0,
-                                x.get('tbr', 0) or 0
-                            ),
-                            reverse=True
-                        )
-                        
-                        if video_formats:
-                            best_video = video_formats[0]
-                            result.update({
-                                'stream_url': best_video['url'],
-                                'type': 'video',
-                                'format': {
-                                    'ext': best_video.get('ext', 'mp4'),
-                                    'height': best_video.get('height'),
-                                    'width': best_video.get('width'),
-                                    'fps': best_video.get('fps'),
-                                    'vcodec': best_video.get('vcodec', 'none'),
-                                    'acodec': best_video.get('acodec', 'none'),
-                                    'filesize': best_video.get('filesize'),
-                                    'filesize_formatted': YouTubeUtils.format_file_size(
-                                        best_video.get('filesize') or 0
-                                    ),
-                                    'format_note': best_video.get('format_note', ''),
-                                    'protocol': best_video.get('protocol', '')
-                                }
-                            })
-                        else:
-                            return {'status': 'error', 'message': f'No {quality} quality video format found'}
+                        best_video = video_formats[0]
+                        result.update({
+                            'stream_url': best_video['url'],
+                            'type': 'video',
+                            'format': {
+                                'ext': best_video.get('ext', 'mp4'),
+                                'height': best_video.get('height'),
+                                'width': best_video.get('width'),
+                                'fps': best_video.get('fps'),
+                                'vcodec': best_video.get('vcodec', 'none'),
+                                'acodec': best_video.get('acodec', 'none'),
+                                'filesize': best_video.get('filesize'),
+                                'filesize_formatted': YouTubeUtils.format_file_size(
+                                    best_video.get('filesize') or 0
+                                ),
+                                'format_note': best_video.get('format_note', ''),
+                                'protocol': best_video.get('protocol', '')
+                            }
+                        })
                     else:
-                        return {'status': 'error', 'message': 'No video format found'}
+                        return {'status': 'error', 'message': f'No {quality} quality video format found'}
                 
-                # Add available formats summary
                 if video_type == "video":
                     result['available_qualities'] = cls._get_available_qualities(formats)
                 
@@ -728,7 +644,6 @@ class YouTubeDownloader:
     
     @staticmethod
     def _get_available_qualities(formats: List[Dict]) -> List[Dict]:
-        """Extract available qualities from formats"""
         qualities = {}
         for fmt in formats:
             if fmt.get('vcodec') != 'none' and fmt.get('height'):
@@ -746,10 +661,8 @@ class YouTubeDownloader:
                         'acodec': fmt.get('acodec'),
                     }
         
-        # Sort by height
         sorted_qualities = sorted(qualities.values(), key=lambda x: x['height'], reverse=True)
         
-        # Add quality labels
         for q in sorted_qualities:
             height = q['height']
             if height >= 2160:
@@ -775,7 +688,6 @@ class YouTubeDownloader:
     
     @staticmethod
     def _get_quality_label(height: int) -> str:
-        """Get quality label from height"""
         if height >= 2160:
             return '4K'
         elif height >= 1440:

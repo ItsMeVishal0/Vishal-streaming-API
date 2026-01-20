@@ -1,13 +1,11 @@
 import os
 import sys
 import time
-import json
 import logging
 import hashlib
 import asyncio
 from typing import Dict, List, Optional, Any
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
 
 import yt_dlp
 import uvicorn
@@ -29,7 +27,6 @@ from fastapi.openapi.utils import get_openapi
 import aiohttp
 from aiohttp import ClientTimeout
 
-# Add current directory to path
 sys.path.append('.')
 
 from config import config
@@ -55,14 +52,11 @@ _request_stats = {
     'last_cleanup': time.time()
 }
 
-# API Key security (optional)
 security = HTTPBearer(auto_error=False)
 
 def cleanup_old_stats():
-    """Cleanup old statistics"""
     current_time = time.time()
-    if current_time - _request_stats['last_cleanup'] > 3600:  # 1 hour
-        # Keep only last 1000 IPs
+    if current_time - _request_stats['last_cleanup'] > 3600:
         if len(_request_stats['requests_by_ip']) > 1000:
             _request_stats['requests_by_ip'] = dict(
                 list(_request_stats['requests_by_ip'].items())[:1000]
@@ -70,7 +64,6 @@ def cleanup_old_stats():
         _request_stats['last_cleanup'] = current_time
 
 def track_request(endpoint: str, client_ip: str):
-    """Track request statistics"""
     _request_stats['total_requests'] += 1
     _request_stats['requests_by_endpoint'][endpoint] = _request_stats['requests_by_endpoint'].get(endpoint, 0) + 1
     _request_stats['requests_by_ip'][client_ip] = _request_stats['requests_by_ip'].get(client_ip, 0) + 1
@@ -79,29 +72,24 @@ def track_request(endpoint: str, client_ip: str):
 # Lifespan events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Handle startup and shutdown events"""
-    # Startup
-    logger.info("🚀 YouTube Streaming API Server starting on Render...")
+    logger.info("🚀 YouTube Streaming API Server starting...")
     logger.info(f"📁 Download directory: {config.DOWNLOAD_DIR}")
     logger.info(f"🌐 Server will run on: http://{config.HOST}:{config.PORT}")
     logger.info(f"🔧 Debug mode: {config.DEBUG}")
-    logger.info(f"📊 Log level: {config.LOG_LEVEL}")
     
     if config.COOKIES_FILE and os.path.exists(config.COOKIES_FILE):
         logger.info("🍪 Cookies file detected")
     else:
-        logger.warning("⚠️  No cookies.txt file found (age-restricted videos may not work)")
+        logger.warning("⚠️  No cookies.txt file found")
     
     if config.PROXY:
         logger.info(f"🌐 Proxy configured: {config.PROXY}")
     
-    # Create aiohttp session for downloads
     app.state.http_session = aiohttp.ClientSession(
         timeout=ClientTimeout(total=60),
         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     )
     
-    # Test yt-dlp
     try:
         test_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         ydl_opts = {'quiet': True, 'no_warnings': True}
@@ -113,20 +101,12 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shutdown
     logger.info("👋 Shutting down YouTube Streaming API Server...")
     
-    # Close aiohttp session
     if hasattr(app.state, 'http_session'):
         await app.state.http_session.close()
 
-# Create FastAPI app with custom docs
 def get_fastapi_description(config):
-    """
-    Safe FastAPI description builder
-    (.format() + math error fix)
-    """
-
     return f"""
 Advanced YouTube Streaming API for audio and video streaming.
 
@@ -140,9 +120,6 @@ Advanced YouTube Streaming API for audio and video streaming.
 - 🔒 Rate limiting
 - 🏥 Health monitoring
 - 📈 System statistics
-
-## Authentication
-No authentication required for public endpoints.
 
 ## Rate Limits
 - {config.MAX_REQUESTS_PER_MINUTE} requests per minute per IP
@@ -165,7 +142,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Custom OpenAPI schema
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -177,7 +153,6 @@ def custom_openapi():
         routes=app.routes,
     )
     
-    # Add servers
     openapi_schema["servers"] = [
         {
             "url": "https://your-app-name.onrender.com",
@@ -189,7 +164,6 @@ def custom_openapi():
         }
     ]
     
-    # Add security schemes
     openapi_schema["components"]["securitySchemes"] = {
         "Bearer": {
             "type": "http",
@@ -203,7 +177,6 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Custom docs endpoint
 @app.get("/docs", include_in_schema=False)
 async def custom_docs():
     return get_swagger_ui_html(
@@ -224,17 +197,13 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# Rate limiting middleware
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Advanced rate limiting middleware with statistics"""
     client_ip = request.client.host if request.client else "unknown"
     endpoint = request.url.path
     
-    # Track request
     track_request(endpoint, client_ip)
     
-    # Check rate limit
     if not await rate_limiter.check_limit(client_ip):
         logger.warning(f"Rate limit exceeded for {client_ip} on {endpoint}")
         return JSONResponse(
@@ -256,18 +225,15 @@ async def rate_limit_middleware(request: Request, call_next):
             }
         )
     
-    # Process request
     start_time = time.time()
     
     try:
         response = await call_next(request)
         process_time = time.time() - start_time
         
-        # Add headers
         response.headers["X-Process-Time"] = f"{process_time:.3f}s"
         response.headers["X-Cache-Hit"] = str(response.headers.get("X-Cache-Hit", "false"))
         
-        # Add rate limit info
         response.headers["X-RateLimit-Limit"] = str(config.MAX_REQUESTS_PER_MINUTE)
         response.headers["X-RateLimit-Remaining"] = str(
             config.MAX_REQUESTS_PER_MINUTE - 
@@ -276,7 +242,6 @@ async def rate_limit_middleware(request: Request, call_next):
         )
         response.headers["X-RateLimit-Reset"] = str(int(time.time() + 60))
         
-        # Log slow requests
         if process_time > 5.0:
             logger.warning(f"Slow request: {request.method} {endpoint} - {process_time:.3f}s")
         
@@ -289,14 +254,10 @@ async def rate_limit_middleware(request: Request, call_next):
         logger.error(f"Error in {endpoint}: {e} - {process_time:.3f}s")
         raise
 
-# Static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Helper functions
 def get_content_type(ext: str, content_type: str = None) -> str:
-    """Get content type based on extension"""
     content_types = {
-        # Audio
         'mp3': 'audio/mpeg',
         'm4a': 'audio/mp4',
         'webm': 'audio/webm',
@@ -305,7 +266,6 @@ def get_content_type(ext: str, content_type: str = None) -> str:
         'flac': 'audio/flac',
         'wav': 'audio/wav',
         'aac': 'audio/aac',
-        # Video
         'mp4': 'video/mp4',
         'webm': 'video/webm',
         'mkv': 'video/x-matroska',
@@ -313,7 +273,6 @@ def get_content_type(ext: str, content_type: str = None) -> str:
         'mov': 'video/quicktime',
         'flv': 'video/x-flv',
         '3gp': 'video/3gpp',
-        # Documents
         'json': 'application/json',
         'txt': 'text/plain',
         'html': 'text/html',
@@ -329,15 +288,10 @@ def get_content_type(ext: str, content_type: str = None) -> str:
     return content_types.get(ext, 'application/octet-stream')
 
 async def stream_file_generator(url: str, chunk_size: int = 8192):
-    """Generator for streaming files from URL"""
     try:
         async with app.state.http_session.get(url) as response:
             response.raise_for_status()
             
-            # Get content length
-            content_length = response.headers.get('Content-Length')
-            
-            # Stream content in chunks
             async for chunk in response.content.iter_chunked(chunk_size):
                 yield chunk
                 
@@ -346,505 +300,52 @@ async def stream_file_generator(url: str, chunk_size: int = 8192):
         raise HTTPException(status_code=500, detail=f"Stream error: {str(e)}")
 
 # API Endpoints
-
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def root():
-    """Root endpoint with HTML interface"""
     html_content = """
     <!DOCTYPE html>
-    <html lang="en">
+    <html>
     <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>YouTube Streaming API</title>
         <style>
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            }
-            
-            body {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                padding: 20px;
-                color: #333;
-            }
-            
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-                background: white;
-                border-radius: 20px;
-                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-                overflow: hidden;
-            }
-            
-            .header {
-                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-                color: white;
-                padding: 40px;
-                text-align: center;
-            }
-            
-            .header h1 {
-                font-size: 2.8rem;
-                margin-bottom: 10px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
-            }
-            
-            .header p {
-                font-size: 1.2rem;
-                opacity: 0.9;
-                max-width: 800px;
-                margin: 0 auto;
-            }
-            
-            .content {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 30px;
-                padding: 40px;
-            }
-            
-            @media (max-width: 768px) {
-                .content {
-                    grid-template-columns: 1fr;
-                }
-            }
-            
-            .card {
-                background: #f8f9fa;
-                border-radius: 15px;
-                padding: 25px;
-                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-                transition: transform 0.3s ease;
-            }
-            
-            .card:hover {
-                transform: translateY(-5px);
-            }
-            
-            .card h2 {
-                color: #f5576c;
-                margin-bottom: 15px;
-                font-size: 1.5rem;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            }
-            
-            .card h2 i {
-                font-size: 1.8rem;
-            }
-            
-            .endpoint {
-                background: white;
-                border-radius: 10px;
-                padding: 15px;
-                margin-bottom: 15px;
-                border-left: 4px solid #667eea;
-            }
-            
-            .method {
-                display: inline-block;
-                padding: 4px 12px;
-                border-radius: 20px;
-                font-size: 0.9rem;
-                font-weight: bold;
-                margin-right: 10px;
-            }
-            
-            .method.get {
-                background: #61affe;
-                color: white;
-            }
-            
-            .endpoint-url {
-                font-family: 'Courier New', monospace;
-                background: #f4f4f4;
-                padding: 8px 12px;
-                border-radius: 6px;
-                margin: 10px 0;
-                overflow-x: auto;
-            }
-            
-            .description {
-                color: #666;
-                margin-top: 8px;
-                font-size: 0.95rem;
-            }
-            
-            .quick-test {
-                background: white;
-                border-radius: 15px;
-                padding: 25px;
-                margin-top: 30px;
-                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            }
-            
-            .quick-test h3 {
-                color: #667eea;
-                margin-bottom: 20px;
-                font-size: 1.3rem;
-            }
-            
-            .input-group {
-                display: flex;
-                gap: 10px;
-                margin-bottom: 15px;
-            }
-            
-            input[type="text"] {
-                flex: 1;
-                padding: 12px 20px;
-                border: 2px solid #e0e0e0;
-                border-radius: 10px;
-                font-size: 1rem;
-                transition: border-color 0.3s ease;
-            }
-            
-            input[type="text"]:focus {
-                outline: none;
-                border-color: #667eea;
-            }
-            
-            button {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                border: none;
-                padding: 12px 24px;
-                border-radius: 10px;
-                font-size: 1rem;
-                font-weight: bold;
-                cursor: pointer;
-                transition: transform 0.2s ease, box-shadow 0.2s ease;
-            }
-            
-            button:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-            }
-            
-            button:active {
-                transform: translateY(0);
-            }
-            
-            .result {
-                margin-top: 20px;
-                padding: 15px;
-                background: #f8f9fa;
-                border-radius: 10px;
-                display: none;
-            }
-            
-            .result.active {
-                display: block;
-            }
-            
-            .stats {
-                background: white;
-                border-radius: 15px;
-                padding: 25px;
-                margin-top: 30px;
-                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            }
-            
-            .stats-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 20px;
-                margin-top: 20px;
-            }
-            
-            .stat-item {
-                text-align: center;
-                padding: 20px;
-                background: #f8f9fa;
-                border-radius: 10px;
-            }
-            
-            .stat-value {
-                font-size: 2rem;
-                font-weight: bold;
-                color: #f5576c;
-                margin-bottom: 5px;
-            }
-            
-            .stat-label {
-                color: #666;
-                font-size: 0.9rem;
-            }
-            
-            .footer {
-                text-align: center;
-                padding: 30px;
-                color: #666;
-                border-top: 1px solid #e0e0e0;
-                margin-top: 40px;
-            }
-            
-            .links {
-                display: flex;
-                justify-content: center;
-                gap: 20px;
-                margin-top: 15px;
-            }
-            
-            .links a {
-                color: #667eea;
-                text-decoration: none;
-                font-weight: bold;
-            }
-            
-            .links a:hover {
-                text-decoration: underline;
-            }
+            body { font-family: Arial, sans-serif; margin: 40px; }
+            .container { max-width: 800px; margin: 0 auto; }
+            .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+            .method { background: #4CAF50; color: white; padding: 3px 8px; border-radius: 3px; font-size: 12px; }
+            .url { font-family: monospace; background: #eee; padding: 5px; margin: 5px 0; }
         </style>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     </head>
     <body>
         <div class="container">
-            <div class="header">
-                <h1><i class="fas fa-play-circle"></i> YouTube Streaming API</h1>
-                <p>Advanced API for streaming YouTube audio and video. High performance, reliable, and feature-rich.</p>
+            <h1>YouTube Streaming API</h1>
+            <p>Advanced API for streaming YouTube audio and video</p>
+            
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <div class="url">/stream/audio?url=YOUTUBE_URL</div>
+                <p>Stream audio from YouTube video</p>
             </div>
             
-            <div class="content">
-                <div class="card">
-                    <h2><i class="fas fa-music"></i> Audio Streaming</h2>
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/stream/audio?url=YOUTUBE_URL</div>
-                        <div class="description">Stream audio from any YouTube video. Returns direct audio stream URL.</div>
-                    </div>
-                    
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/download/audio?url=YOUTUBE_URL</div>
-                        <div class="description">Download audio as MP3 file with proper headers.</div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <h2><i class="fas fa-video"></i> Video Streaming</h2>
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/stream/video?url=YOUTUBE_URL&quality=best</div>
-                        <div class="description">Stream video with quality options (low, medium, high, best).</div>
-                    </div>
-                    
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/download/video?url=YOUTUBE_URL&quality=best</div>
-                        <div class="description">Download video file with selected quality.</div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <h2><i class="fas fa-info-circle"></i> Information</h2>
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/info?url=YOUTUBE_URL</div>
-                        <div class="description">Get detailed video information including title, duration, views, etc.</div>
-                    </div>
-                    
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/formats?url=YOUTUBE_URL</div>
-                        <div class="description">Get all available formats and qualities for a video.</div>
-                    </div>
-                    
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/search?q=QUERY&limit=10</div>
-                        <div class="description">Search YouTube videos (max 50 results).</div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <h2><i class="fas fa-chart-line"></i> System & Monitoring</h2>
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/health</div>
-                        <div class="description">Health check endpoint to verify API status.</div>
-                    </div>
-                    
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/stats</div>
-                        <div class="description">Detailed API statistics and performance metrics.</div>
-                    </div>
-                    
-                    <div class="endpoint">
-                        <span class="method get">GET</span>
-                        <div class="endpoint-url">/system</div>
-                        <div class="description">System resource usage and monitoring.</div>
-                    </div>
-                </div>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <div class="url">/stream/video?url=YOUTUBE_URL&quality=best</div>
+                <p>Stream video with quality options</p>
             </div>
             
-            <div class="quick-test">
-                <h3><i class="fas fa-vial"></i> Quick Test</h3>
-                <div class="input-group">
-                    <input type="text" id="testUrl" placeholder="Enter YouTube URL (e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ)" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
-                </div>
-                <div class="input-group">
-                    <button onclick="testAudio()"><i class="fas fa-music"></i> Test Audio</button>
-                    <button onclick="testVideo()"><i class="fas fa-video"></i> Test Video</button>
-                    <button onclick="testInfo()"><i class="fas fa-info-circle"></i> Test Info</button>
-                </div>
-                <div id="testResult" class="result"></div>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <div class="url">/download/audio?url=YOUTUBE_URL</div>
+                <p>Download audio file</p>
             </div>
             
-            <div class="stats">
-                <h3><i class="fas fa-tachometer-alt"></i> Live Stats</h3>
-                <div class="stats-grid" id="liveStats">
-                    <div class="stat-item">
-                        <div class="stat-value" id="totalRequests">0</div>
-                        <div class="stat-label">Total Requests</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value" id="cacheHits">0</div>
-                        <div class="stat-label">Cache Hits</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value" id="uptime">0</div>
-                        <div class="stat-label">Uptime (hours)</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value" id="memoryUsage">0</div>
-                        <div class="stat-label">Memory (MB)</div>
-                    </div>
-                </div>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <div class="url">/download/video?url=YOUTUBE_URL&quality=best</div>
+                <p>Download video file</p>
             </div>
             
-            <div class="footer">
-                <p>YouTube Streaming API v4.0.0 • Hosted on Render.com</p>
-                <div class="links">
-                    <a href="/docs"><i class="fas fa-book"></i> API Documentation</a>
-                    <a href="/redoc"><i class="fas fa-file-alt"></i> ReDoc</a>
-                    <a href="/health"><i class="fas fa-heartbeat"></i> Health Check</a>
-                    <a href="https://github.com" target="_blank"><i class="fab fa-github"></i> GitHub</a>
-                </div>
-            </div>
+            <p><a href="/docs">API Documentation</a> | <a href="/health">Health Check</a></p>
         </div>
-        
-        <script>
-            async function testAudio() {
-                const url = document.getElementById('testUrl').value;
-                const resultDiv = document.getElementById('testResult');
-                resultDiv.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Testing audio stream...</p>';
-                resultDiv.className = 'result active';
-                
-                try {
-                    const response = await fetch(`/stream/audio?url=${encodeURIComponent(url)}`);
-                    if (response.redirected || response.status === 302) {
-                        const audioUrl = response.url;
-                        resultDiv.innerHTML = `
-                            <p><i class="fas fa-check-circle" style="color: green;"></i> Audio stream successful!</p>
-                            <p><strong>Stream URL:</strong> <a href="${audioUrl}" target="_blank">${audioUrl.substring(0, 100)}...</a></p>
-                            <audio controls style="width: 100%; margin-top: 10px;">
-                                <source src="${audioUrl}" type="audio/mpeg">
-                            </audio>
-                        `;
-                    } else {
-                        resultDiv.innerHTML = `<p><i class="fas fa-times-circle" style="color: red;"></i> Error: ${response.status}</p>`;
-                    }
-                } catch (error) {
-                    resultDiv.innerHTML = `<p><i class="fas fa-times-circle" style="color: red;"></i> Error: ${error.message}</p>`;
-                }
-            }
-            
-            async function testVideo() {
-                const url = document.getElementById('testUrl').value;
-                const resultDiv = document.getElementById('testResult');
-                resultDiv.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Testing video stream...</p>';
-                resultDiv.className = 'result active';
-                
-                try {
-                    const response = await fetch(`/stream/video?url=${encodeURIComponent(url)}&quality=best`);
-                    if (response.redirected || response.status === 302) {
-                        const videoUrl = response.url;
-                        resultDiv.innerHTML = `
-                            <p><i class="fas fa-check-circle" style="color: green;"></i> Video stream successful!</p>
-                            <p><strong>Stream URL:</strong> <a href="${videoUrl}" target="_blank">${videoUrl.substring(0, 100)}...</a></p>
-                            <video controls style="width: 100%; margin-top: 10px;">
-                                <source src="${videoUrl}" type="video/mp4">
-                            </video>
-                        `;
-                    } else {
-                        resultDiv.innerHTML = `<p><i class="fas fa-times-circle" style="color: red;"></i> Error: ${response.status}</p>`;
-                    }
-                } catch (error) {
-                    resultDiv.innerHTML = `<p><i class="fas fa-times-circle" style="color: red;"></i> Error: ${error.message}</p>`;
-                }
-            }
-            
-            async function testInfo() {
-                const url = document.getElementById('testUrl').value;
-                const resultDiv = document.getElementById('testResult');
-                resultDiv.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Fetching video info...</p>';
-                resultDiv.className = 'result active';
-                
-                try {
-                    const response = await fetch(`/info?url=${encodeURIComponent(url)}`);
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        resultDiv.innerHTML = `
-                            <p><i class="fas fa-check-circle" style="color: green;"></i> Video info fetched!</p>
-                            <p><strong>Title:</strong> ${data.title}</p>
-                            <p><strong>Channel:</strong> ${data.channel}</p>
-                            <p><strong>Duration:</strong> ${data.duration_formatted || data.duration + 's'}</p>
-                            <p><strong>Views:</strong> ${data.view_count?.toLocaleString() || 'N/A'}</p>
-                            ${data.thumbnail ? `<p><img src="${data.thumbnail}" style="max-width: 200px; border-radius: 8px; margin-top: 10px;"></p>` : ''}
-                        `;
-                    } else {
-                        resultDiv.innerHTML = `<p><i class="fas fa-times-circle" style="color: red;"></i> Error: ${data.message || response.status}</p>`;
-                    }
-                } catch (error) {
-                    resultDiv.innerHTML = `<p><i class="fas fa-times-circle" style="color: red;"></i> Error: ${error.message}</p>`;
-                }
-            }
-            
-            async function updateStats() {
-                try {
-                    const [healthRes, statsRes, systemRes] = await Promise.all([
-                        fetch('/health'),
-                        fetch('/stats'),
-                        fetch('/system')
-                    ]);
-                    
-                    if (healthRes.ok) {
-                        const health = await healthRes.json();
-                        document.getElementById('totalRequests').textContent = 
-                            health.total_requests?.toLocaleString() || '0';
-                    }
-                    
-                    if (statsRes.ok) {
-                        const stats = await statsRes.json();
-                        document.getElementById('cacheHits').textContent = 
-                            stats.cache_hits?.toLocaleString() || '0';
-                    }
-                    
-                    if (systemRes.ok) {
-                        const system = await systemRes.json();
-                        document.getElementById('uptime').textContent = 
-                            system.uptime_hours?.toFixed(1) || '0';
-                        document.getElementById('memoryUsage').textContent = 
-                            system.memory_rss_mb?.toFixed(1) || '0';
-                    }
-                } catch (error) {
-                    console.error('Failed to update stats:', error);
-                }
-            }
-            
-            // Update stats every 10 seconds
-            updateStats();
-            setInterval(updateStats, 10000);
-        </script>
     </body>
     </html>
     """
@@ -852,68 +353,36 @@ async def root():
 
 @app.get("/api")
 async def api_info():
-    """API information endpoint"""
     return {
         "service": "YouTube Streaming API",
         "version": "4.0.0",
         "status": "active",
-        "hosted_on": "Render.com",
-        "timestamp": time.time(),
-        "uptime_seconds": time.time() - _request_stats['start_time'],
-        "documentation": {
-            "swagger": "/docs",
-            "redoc": "/redoc",
-            "openapi": "/openapi.json"
-        },
-        "rate_limits": {
-            "max_requests_per_minute": config.MAX_REQUESTS_PER_MINUTE,
-            "window_seconds": 60
-        },
-        "cache": {
-            "max_size": config.MAX_CACHE_SIZE,
-            "ttl_seconds": config.CACHE_TTL
-        },
-        "features": [
-            "Audio streaming",
-            "Video streaming (up to 1080p)",
-            "Video downloads",
-            "Audio downloads",
-            "YouTube search",
-            "Video information",
-            "Format listing",
-            "Health monitoring",
-            "System statistics",
-            "WebSocket support",
-            "CORS enabled",
-            "Rate limiting",
-            "Caching"
-        ]
+        "endpoints": {
+            "audio_stream": "/stream/audio?url=YOUTUBE_URL",
+            "video_stream": "/stream/video?url=YOUTUBE_URL&quality=best",
+            "audio_download": "/download/audio?url=YOUTUBE_URL",
+            "video_download": "/download/video?url=YOUTUBE_URL&quality=best",
+            "video_info": "/info?url=YOUTUBE_URL",
+            "search": "/search?q=QUERY",
+            "health": "/health",
+            "stats": "/stats"
+        }
     }
 
 @app.get("/stream/audio")
 async def stream_audio(
     request: Request,
     url: str = Query(..., description="YouTube video URL"),
-    quality: str = Query("best", description="Audio quality preference"),
-    download: bool = Query(False, description="Force download instead of stream"),
+    quality: str = Query("best", description="Audio quality"),
+    download: bool = Query(False, description="Force download"),
     force_refresh: bool = Query(False, description="Bypass cache")
 ):
-    """
-    Stream audio from YouTube video.
-    
-    Returns a redirect to the direct audio stream URL or streams the audio directly.
-    Supports multiple audio formats and fallback extraction methods.
-    """
     if not youtube_utils.is_valid_youtube_url(url):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid YouTube URL. Supported formats: youtube.com/watch?v=..., youtu.be/..., youtube.com/embed/..."
-        )
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
     
     try:
         video_id = youtube_utils.extract_video_id(url)
         
-        # Check cache if not forcing refresh
         cache_key = f"audio:{video_id}:{quality}"
         if not force_refresh:
             cached_result = await cache.get(cache_key)
@@ -927,33 +396,20 @@ async def stream_audio(
             result = await downloader.get_stream_info(url, "audio", quality)
         
         if result['status'] != 'success':
-            # Provide helpful error messages
             error_msg = result.get('message', 'Unknown error')
-            if 'age restricted' in error_msg.lower() or 'sign in' in error_msg.lower():
-                error_msg += ". Try adding cookies.txt file for age-restricted videos."
-            elif 'region' in error_msg.lower() or 'blocked' in error_msg.lower():
-                error_msg += ". Video may be region-locked."
-            elif 'private' in error_msg.lower():
-                error_msg += ". Video is private or unavailable."
-            
-            raise HTTPException(
-                status_code=500,
-                detail=f"Audio extraction failed: {error_msg}"
-            )
+            raise HTTPException(status_code=500, detail=f"Audio extraction failed: {error_msg}")
         
         stream_url = result['stream_url']
         title = youtube_utils.clean_title(result.get('title', 'audio'))
         ext = result.get('format', {}).get('ext', 'm4a')
         content_type = get_content_type(ext, 'audio/mpeg')
         
-        logger.info(f"Audio stream: {title} | Format: {ext} | Bitrate: {result.get('format', {}).get('abr', 'N/A')}kbps")
+        logger.info(f"Audio stream: {title} | Format: {ext}")
         
-        # Cache successful result
         if result.get('status') == 'success' and not result.get('cached'):
             await cache.set(cache_key, result, size=10240)
         
         if download:
-            # Return as downloadable file
             filename = f"{title}.{ext}"
             
             return StreamingResponse(
@@ -966,25 +422,20 @@ async def stream_audio(
                     'Content-Type': content_type,
                     'X-Audio-Title': title,
                     'X-Video-Id': video_id,
-                    'X-Audio-Bitrate': str(result.get('format', {}).get('abr', 128)),
-                    'X-Audio-Codec': result.get('format', {}).get('acodec', 'unknown'),
                     'X-Cache-Hit': str(result.get('cached', False)).lower()
                 }
             )
         else:
-            # Return redirect to stream URL
             response = RedirectResponse(url=stream_url, status_code=302)
             
             response.headers.update({
                 'Accept-Ranges': 'bytes',
                 'Content-Type': content_type,
-                'Cache-Control': 'public, max-age=86400',  # 24 hours
+                'Cache-Control': 'public, max-age=86400',
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Expose-Headers': '*',
                 'X-Audio-Title': title,
                 'X-Video-Id': video_id,
-                'X-Audio-Bitrate': str(result.get('format', {}).get('abr', 128)),
-                'X-Audio-Codec': result.get('format', {}).get('acodec', 'unknown'),
                 'X-Stream-Url-Hash': hashlib.md5(stream_url.encode()).hexdigest()[:8],
                 'X-Cache-Hit': str(result.get('cached', False)).lower()
             })
@@ -995,45 +446,26 @@ async def stream_audio(
         raise
     except Exception as e:
         logger.error(f"Audio stream error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Audio streaming error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Audio streaming error: {str(e)}")
 
 @app.get("/stream/video")
 async def stream_video(
     request: Request,
     url: str = Query(..., description="YouTube video URL"),
     quality: str = Query("best", description="Video quality: low, medium, high, best, 4k"),
-    download: bool = Query(False, description="Force download instead of stream"),
+    download: bool = Query(False, description="Force download"),
     force_refresh: bool = Query(False, description="Bypass cache")
 ):
-    """
-    Stream video from YouTube.
-    
-    Quality options:
-    - low: 360p or lower
-    - medium: 480p
-    - high: 720p
-    - best: 1080p or best available
-    - 4k: 4K if available (requires cookies for some videos)
-    
-    Returns redirect to direct video stream URL.
-    """
     if not youtube_utils.is_valid_youtube_url(url):
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
     
     valid_qualities = ["low", "medium", "high", "best", "4k"]
     if quality not in valid_qualities:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid quality. Must be one of: {', '.join(valid_qualities)}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid quality. Must be one of: {', '.join(valid_qualities)}")
     
     try:
         video_id = youtube_utils.extract_video_id(url)
         
-        # Check cache
         cache_key = f"video:{video_id}:{quality}"
         if not force_refresh:
             cached_result = await cache.get(cache_key)
@@ -1048,13 +480,6 @@ async def stream_video(
         
         if result['status'] != 'success':
             error_msg = result.get('message', 'Unknown error')
-            
-            # Provide helpful suggestions
-            if 'too large' in error_msg.lower():
-                error_msg += f". Maximum download size is {config.MAX_DOWNLOAD_SIZE // (1024*1024)}MB."
-            elif 'height' in error_msg.lower() and 'not found' in error_msg.lower():
-                error_msg += f". Try a lower quality like 'high' or 'medium'."
-            
             raise HTTPException(status_code=500, detail=f"Video extraction failed: {error_msg}")
         
         stream_url = result['stream_url']
@@ -1063,18 +488,16 @@ async def stream_video(
         content_type = get_content_type(ext, 'video/mp4')
         height = result.get('format', {}).get('height', 'N/A')
         
-        logger.info(f"Video stream: {title} | Quality: {quality} ({height}p) | Size: {result.get('format', {}).get('filesize_formatted', 'N/A')}")
+        logger.info(f"Video stream: {title} | Quality: {quality} ({height}p)")
         
-        # Cache successful result
         if result.get('status') == 'success' and not result.get('cached'):
-            await cache.set(cache_key, result, size=20480)  # 20KB estimated
+            await cache.set(cache_key, result, size=20480)
         
         if download:
-            # Return as downloadable file
             filename = f"{title}_{height}p.{ext}"
             
             return StreamingResponse(
-                stream_file_generator(stream_url),
+                stream_file_generator(stream_url, chunk_size=131072),
                 media_type=content_type,
                 headers={
                     'Content-Disposition': f'attachment; filename="{filename}"',
@@ -1084,25 +507,21 @@ async def stream_video(
                     'X-Video-Title': title,
                     'X-Video-Id': video_id,
                     'X-Video-Quality': f"{height}p",
-                    'X-Video-Size': result.get('format', {}).get('filesize_formatted', 'N/A'),
                     'X-Cache-Hit': str(result.get('cached', False)).lower()
                 }
             )
         else:
-            # Return redirect
             response = RedirectResponse(url=stream_url, status_code=302)
             
             response.headers.update({
                 'Accept-Ranges': 'bytes',
                 'Content-Type': content_type,
-                'Cache-Control': 'public, max-age=7200',  # 2 hours for video
+                'Cache-Control': 'public, max-age=7200',
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Expose-Headers': '*',
                 'X-Video-Title': title,
                 'X-Video-Id': video_id,
                 'X-Video-Quality': f"{height}p",
-                'X-Video-Size': result.get('format', {}).get('filesize_formatted', 'N/A'),
-                'X-Video-Codec': result.get('format', {}).get('vcodec', 'unknown'),
                 'X-Stream-Url-Hash': hashlib.md5(stream_url.encode()).hexdigest()[:8],
                 'X-Cache-Hit': str(result.get('cached', False)).lower()
             })
@@ -1121,19 +540,12 @@ async def get_video_info(
     detailed: bool = Query(False, description="Include detailed information"),
     force_refresh: bool = Query(False, description="Bypass cache")
 ):
-    """
-    Get detailed information about a YouTube video.
-    
-    Returns title, duration, channel, views, likes, description, thumbnails,
-    available formats, and more.
-    """
     if not youtube_utils.is_valid_youtube_url(url):
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
     
     try:
         video_id = youtube_utils.extract_video_id(url)
         
-        # Check cache
         cache_key = f"info:{video_id}:{detailed}"
         if not force_refresh:
             cached_info = await cache.get(cache_key)
@@ -1142,13 +554,11 @@ async def get_video_info(
                 cached_info['cached'] = True
                 return cached_info
         
-        # Get basic info first
         result = await downloader.get_stream_info(url, "video", "best")
         
         if result['status'] != 'success':
             raise HTTPException(status_code=500, detail=result.get('message', 'Info extraction failed'))
         
-        # Build response
         video_info = {
             'video_id': video_id,
             'title': result.get('title'),
@@ -1172,7 +582,6 @@ async def get_video_info(
         }
         
         if detailed:
-            # Get additional info using yt-dlp
             try:
                 ydl_opts = {
                     'quiet': True,
@@ -1194,7 +603,6 @@ async def get_video_info(
                     )
                 
                 if info:
-                    # Add detailed info
                     video_info.update({
                         'average_rating': info.get('average_rating'),
                         'description_full': info.get('description'),
@@ -1203,14 +611,11 @@ async def get_video_info(
                         'subtitles': list(info.get('subtitles', {}).keys()) if info.get('subtitles') else [],
                         'automatic_captions': list(info.get('automatic_captions', {}).keys()) if info.get('automatic_captions') else [],
                         'chapters': info.get('chapters'),
-                        'heatmap': info.get('heatmap'),
                         'comment_count': info.get('comment_count'),
-                        'chapters': info.get('chapters'),
                         'webpage_url_direct': info.get('webpage_url'),
                         'original_url': info.get('original_url'),
                     })
                     
-                    # Get all thumbnails
                     thumbnails = info.get('thumbnails', [])
                     if thumbnails:
                         video_info['thumbnails'] = [
@@ -1220,14 +625,13 @@ async def get_video_info(
                                 'height': t.get('height'),
                                 'resolution': t.get('resolution'),
                             }
-                            for t in thumbnails[:10]  # Limit to 10 thumbnails
+                            for t in thumbnails[:10]
                         ]
                     
-                    # Get all formats summary
                     formats = info.get('formats', [])
                     if formats:
                         format_summary = []
-                        for fmt in formats[:20]:  # Limit to 20 formats
+                        for fmt in formats[:20]:
                             if fmt.get('filesize') or fmt.get('filesize_approx'):
                                 format_summary.append({
                                     'format_id': fmt.get('format_id'),
@@ -1252,8 +656,7 @@ async def get_video_info(
                 logger.warning(f"Could not get detailed info: {e}")
                 video_info['detailed_info_error'] = str(e)
         
-        # Cache the info
-        await cache.set(cache_key, video_info, size=30720)  # 30KB estimated
+        await cache.set(cache_key, video_info, size=30720)
         
         return video_info
         
@@ -1267,25 +670,12 @@ async def get_video_info(
 async def get_available_formats(
     url: str = Query(..., description="YouTube video URL")
 ):
-    """
-    Get all available formats for a YouTube video.
-    
-    Returns detailed information about each available format including:
-    - Format ID
-    - Extension
-    - Resolution
-    - File size
-    - Video/audio codecs
-    - Bitrate
-    - Protocol
-    """
     if not youtube_utils.is_valid_youtube_url(url):
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
     
     try:
         video_id = youtube_utils.extract_video_id(url)
         
-        # Check cache
         cache_key = f"formats:{video_id}"
         cached_formats = await cache.get(cache_key)
         if cached_formats:
@@ -1293,7 +683,6 @@ async def get_available_formats(
             cached_formats['cached'] = True
             return cached_formats
         
-        # Get formats using yt-dlp
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -1314,7 +703,6 @@ async def get_available_formats(
         if not info:
             raise HTTPException(status_code=404, detail="Video not found or unavailable")
         
-        # Process formats
         formats = []
         video_formats = []
         audio_formats = []
@@ -1335,9 +723,9 @@ async def get_available_formats(
                 'vcodec': fmt.get('vcodec', 'none'),
                 'acodec': fmt.get('acodec', 'none'),
                 'format_note': fmt.get('format_note', ''),
-                'tbr': fmt.get('tbr'),  # Average bitrate
-                'abr': fmt.get('abr'),  # Audio bitrate
-                'asr': fmt.get('asr'),  # Audio sample rate
+                'tbr': fmt.get('tbr'),
+                'abr': fmt.get('abr'),
+                'asr': fmt.get('asr'),
                 'protocol': fmt.get('protocol', ''),
                 'container': fmt.get('container', ''),
                 'dynamic_range': fmt.get('dynamic_range', 'SDR'),
@@ -1350,7 +738,6 @@ async def get_available_formats(
             
             formats.append(format_info)
             
-            # Categorize
             if format_info['has_video'] and format_info['has_audio']:
                 video_formats.append(format_info)
             elif format_info['has_audio'] and not format_info['has_video']:
@@ -1358,7 +745,6 @@ async def get_available_formats(
             elif format_info['has_video'] and not format_info['has_audio']:
                 adaptive_formats.append(format_info)
         
-        # Sort each category
         video_formats.sort(key=lambda x: (x.get('height', 0) or 0, x.get('tbr', 0) or 0), reverse=True)
         audio_formats.sort(key=lambda x: (x.get('abr', 0) or 0, x.get('asr', 0) or 0), reverse=True)
         adaptive_formats.sort(key=lambda x: (x.get('height', 0) or 0, x.get('tbr', 0) or 0), reverse=True)
@@ -1367,7 +753,7 @@ async def get_available_formats(
             'video_id': video_id,
             'title': info.get('title', 'Unknown'),
             'total_formats': len(formats),
-            'formats': formats[:100],  # Limit to 100 formats
+            'formats': formats[:100],
             'categories': {
                 'video_with_audio': video_formats[:20],
                 'audio_only': audio_formats[:20],
@@ -1382,8 +768,7 @@ async def get_available_formats(
             'timestamp': time.time()
         }
         
-        # Cache the result
-        await cache.set(cache_key, response, size=51200)  # 50KB estimated
+        await cache.set(cache_key, response, size=51200)
         
         return response
         
@@ -1400,12 +785,6 @@ async def search_videos(
     duration: str = Query(None, description="Duration: short, medium, long"),
     force_refresh: bool = Query(False, description="Bypass cache")
 ):
-    """
-    Search YouTube videos.
-    
-    Supports various filters and sorting options.
-    Returns video information including title, channel, duration, views, and thumbnails.
-    """
     if not q or len(q.strip()) < 2:
         return {
             "success": False,
@@ -1416,7 +795,6 @@ async def search_videos(
         }
     
     try:
-        # Check cache
         cache_key = f"search:{q}:{limit}:{type}:{sort}:{duration}"
         if not force_refresh:
             cached_results = await cache.get(cache_key)
@@ -1425,10 +803,8 @@ async def search_videos(
                 cached_results['cached'] = True
                 return cached_results
         
-        # Build search query
         search_query = q
         
-        # Add filters if specified
         filters = []
         if type == "playlist":
             filters.append("playlist")
@@ -1442,19 +818,15 @@ async def search_videos(
         elif duration == "long":
             filters.append("long")
         
-        # Search using our async method
         results = await youtube_utils.search_youtube_async(search_query, limit)
         
-        # Apply sorting
         if sort == "date":
             results.sort(key=lambda x: x.get('upload_date', ''), reverse=True)
         elif sort == "views":
-            # Extract view count from string like "1.2M views"
             def parse_views(view_str):
                 if isinstance(view_str, int):
                     return view_str
                 if isinstance(view_str, str):
-                    # Remove " views" and parse
                     view_str = view_str.replace(' views', '').replace(',', '')
                     if 'K' in view_str:
                         return float(view_str.replace('K', '')) * 1000
@@ -1470,9 +842,6 @@ async def search_videos(
                 return 0
             
             results.sort(key=lambda x: parse_views(x.get('view_count', 0)), reverse=True)
-        elif sort == "rating":
-            # YouTube doesn't provide rating in search results
-            pass  # Keep relevance order
         
         response = {
             'success': True,
@@ -1485,8 +854,7 @@ async def search_videos(
             'timestamp': time.time()
         }
         
-        # Cache results (shorter TTL for search results)
-        cache_ttl = 300  # 5 minutes for search results
+        cache_ttl = 300
         await cache.set(cache_key, response, size=len(str(results).encode('utf-8')))
         
         return response
@@ -1507,17 +875,10 @@ async def download_audio(
     quality: str = Query("best", description="Audio quality preference"),
     filename: str = Query(None, description="Custom filename (without extension)")
 ):
-    """
-    Download audio from YouTube video.
-    
-    Returns the audio file as a downloadable attachment.
-    Supports MP3, M4A, and other audio formats.
-    """
     if not youtube_utils.is_valid_youtube_url(url):
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
     
     try:
-        # Get stream info
         result = await downloader.get_stream_info(url, "audio", quality)
         
         if result['status'] != 'success':
@@ -1527,21 +888,18 @@ async def download_audio(
         title = youtube_utils.clean_title(result.get('title', 'audio'))
         ext = result.get('format', {}).get('ext', 'mp3')
         
-        # Use custom filename if provided
         if filename:
-            # Clean filename
             filename = youtube_utils.clean_title(filename)
             download_filename = f"{filename}.{ext}"
         else:
             download_filename = f"{title}.{ext}"
         
-        # Get content type
         content_type = get_content_type(ext, 'audio/mpeg')
         
-        logger.info(f"Download audio: {title} | Format: {ext} | Filename: {download_filename}")
+        logger.info(f"Download audio: {title} | Format: {ext}")
         
         return StreamingResponse(
-            stream_file_generator(stream_url, chunk_size=65536),  # 64KB chunks
+            stream_file_generator(stream_url, chunk_size=65536),
             media_type=content_type,
             headers={
                 'Content-Disposition': f'attachment; filename="{download_filename}"',
@@ -1552,7 +910,6 @@ async def download_audio(
                 'X-Video-Id': result.get('video_id', ''),
                 'X-Audio-Bitrate': str(result.get('format', {}).get('abr', 128)),
                 'X-Audio-Codec': result.get('format', {}).get('acodec', 'unknown'),
-                'X-File-Size': str(result.get('format', {}).get('filesize', 'unknown')),
             }
         )
         
@@ -1568,30 +925,19 @@ async def download_video(
     quality: str = Query("best", description="Video quality: low, medium, high, best, 4k"),
     filename: str = Query(None, description="Custom filename (without extension)")
 ):
-    """
-    Download video from YouTube.
-    
-    Returns the video file as a downloadable attachment.
-    Supports MP4, WebM, and other video formats.
-    """
     if not youtube_utils.is_valid_youtube_url(url):
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
     
     valid_qualities = ["low", "medium", "high", "best", "4k"]
     if quality not in valid_qualities:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid quality. Must be one of: {', '.join(valid_qualities)}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid quality. Must be one of: {', '.join(valid_qualities)}")
     
     try:
-        # Get stream info
         result = await downloader.get_stream_info(url, "video", quality)
         
         if result['status'] != 'success':
             raise HTTPException(status_code=500, detail=result.get('message', 'Download error'))
         
-        # Check file size limit
         filesize = result.get('format', {}).get('filesize')
         if filesize and filesize > config.MAX_DOWNLOAD_SIZE:
             raise HTTPException(
@@ -1606,20 +952,18 @@ async def download_video(
         ext = result.get('format', {}).get('ext', 'mp4')
         height = result.get('format', {}).get('height', 'N/A')
         
-        # Use custom filename if provided
         if filename:
             filename = youtube_utils.clean_title(filename)
             download_filename = f"{filename}_{height}p.{ext}"
         else:
             download_filename = f"{title}_{height}p.{ext}"
         
-        # Get content type
         content_type = get_content_type(ext, 'video/mp4')
         
-        logger.info(f"Download video: {title} | Quality: {height}p | Size: {result.get('format', {}).get('filesize_formatted', 'N/A')}")
+        logger.info(f"Download video: {title} | Quality: {height}p")
         
         return StreamingResponse(
-            stream_file_generator(stream_url, chunk_size=131072),  # 128KB chunks for video
+            stream_file_generator(stream_url, chunk_size=131072),
             media_type=content_type,
             headers={
                 'Content-Disposition': f'attachment; filename="{download_filename}"',
@@ -1630,8 +974,6 @@ async def download_video(
                 'X-Video-Id': result.get('video_id', ''),
                 'X-Video-Quality': f"{height}p",
                 'X-Video-Size': result.get('format', {}).get('filesize_formatted', 'N/A'),
-                'X-Video-Codec': result.get('format', {}).get('vcodec', 'unknown'),
-                'X-Video-FPS': str(result.get('format', {}).get('fps', 'unknown')),
             }
         )
         
@@ -1643,28 +985,11 @@ async def download_video(
 
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint.
-    
-    Returns the health status of the API including:
-    - Service status
-    - Cache statistics
-    - Rate limiter statistics
-    - Request statistics
-    - System information
-    """
     try:
-        # Get cache stats
         cache_stats = cache.get_stats()
-        
-        # Get rate limiter stats
         rate_limiter_stats = rate_limiter.get_stats()
-        
-        # Calculate uptime
         uptime_seconds = time.time() - _request_stats['start_time']
         uptime_hours = uptime_seconds / 3600
-        
-        # Get system stats
         system_stats = system_monitor.get_system_stats()
         
         health_status = {
@@ -1696,11 +1021,10 @@ async def health_check():
                 "cache_operational": cache_stats['size'] >= 0,
                 "rate_limiter_operational": True,
                 "disk_space_adequate": system_stats.get('disk', {}).get('free_gb', 0) > 1,
-                "memory_adequate": system_stats.get('memory', {}).get('rss_mb', 0) < 400,  # < 400MB
+                "memory_adequate": system_stats.get('memory', {}).get('rss_mb', 0) < 400,
             }
         }
         
-        # Check if all checks pass
         all_checks_pass = all(health_status['checks'].values())
         health_status['overall_healthy'] = all_checks_pass
         
@@ -1726,14 +1050,7 @@ async def api_statistics(
     detailed: bool = Query(False, description="Include detailed statistics"),
     auth: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ):
-    """
-    Get detailed API statistics.
-    
-    Includes request counts, cache performance, rate limiting,
-    and system metrics. Requires API key for detailed statistics.
-    """
     try:
-        # Basic stats available to everyone
         basic_stats = {
             "total_requests": _request_stats['total_requests'],
             "uptime_seconds": time.time() - _request_stats['start_time'],
@@ -1753,13 +1070,9 @@ async def api_statistics(
         if not detailed:
             return basic_stats
         
-        # Check API key for detailed stats
         if auth:
-            # In production, validate the API key here
-            # For now, we'll accept any bearer token for detailed stats
             pass
         
-        # Detailed statistics
         detailed_stats = {
             **basic_stats,
             "requests_by_endpoint": _request_stats['requests_by_endpoint'],
@@ -1782,7 +1095,7 @@ async def api_statistics(
                 "has_youtube_api_key": bool(config.YOUTUBE_API_KEY),
             },
             "performance": {
-                "average_request_time": "N/A",  # Would need tracking
+                "average_request_time": "N/A",
                 "peak_requests_per_minute": "N/A",
                 "concurrent_requests": "N/A",
             }
@@ -1796,20 +1109,9 @@ async def api_statistics(
 
 @app.get("/system")
 async def system_info():
-    """
-    Get system information and resource usage.
-    
-    Returns detailed system metrics including:
-    - Memory usage
-    - CPU usage
-    - Disk usage
-    - Network statistics
-    - Garbage collection stats
-    """
     try:
         system_stats = system_monitor.get_system_stats()
         
-        # Add process-specific info
         import psutil
         process = psutil.Process()
         
@@ -1832,7 +1134,7 @@ async def system_info():
             "python": {
                 "version": sys.version,
                 "implementation": sys.implementation.name,
-                "path": sys.path[:5],  # First 5 entries
+                "path": sys.path[:5],
                 "executable": sys.executable,
             },
             "api": {
@@ -1856,30 +1158,14 @@ async def system_info():
 async def clear_cache_endpoint(
     auth: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ):
-    """
-    Clear all cache entries.
-    
-    Requires API key authentication.
-    """
-    # Check API key
     if not auth:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required. Provide Bearer token."
-        )
-    
-    # In production, validate the API key
-    # For now, we'll accept any token
+        raise HTTPException(status_code=401, detail="Authentication required")
     
     try:
-        # Clear cache
         cache_size = len(cache.cache)
         cache_memory = cache.stats['size_bytes']
         
         await cache.clear()
-        
-        # Also clear rate limiter (optional)
-        # await rate_limiter.clear()  # If you implement this method
         
         logger.info(f"Cache cleared: {cache_size} entries, {cache_memory / (1024*1024):.2f}MB")
         
@@ -1897,17 +1183,6 @@ async def clear_cache_endpoint(
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time updates.
-    
-    Supported commands:
-    - "ping": Returns pong with timestamp
-    - "info:URL": Returns video information
-    - "search:QUERY": Returns search results
-    - "stream:audio:URL": Returns audio stream info
-    - "stream:video:URL:QUALITY": Returns video stream info
-    - "stats": Returns real-time statistics
-    """
     await websocket.accept()
     
     client_ip = websocket.client.host if websocket.client else "unknown"
@@ -1915,12 +1190,10 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            # Receive message
             data = await websocket.receive_text()
             
             try:
                 if data == "ping":
-                    # Ping-pong
                     await websocket.send_json({
                         "type": "pong",
                         "timestamp": time.time(),
@@ -1928,7 +1201,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
                     
                 elif data.startswith("info:"):
-                    # Get video info
                     video_url = data[5:]
                     if youtube_utils.is_valid_youtube_url(video_url):
                         result = await downloader.get_stream_info(video_url, "video", "best")
@@ -1945,7 +1217,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         })
                         
                 elif data.startswith("search:"):
-                    # Search videos
                     query = data[7:]
                     if len(query) >= 2:
                         results = await youtube_utils.search_youtube_async(query, limit=5)
@@ -1964,7 +1235,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         })
                         
                 elif data.startswith("stream:audio:"):
-                    # Audio stream info
                     video_url = data[13:]
                     if youtube_utils.is_valid_youtube_url(video_url):
                         result = await downloader.get_stream_info(video_url, "audio", "best")
@@ -1981,7 +1251,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         })
                         
                 elif data.startswith("stream:video:"):
-                    # Video stream info
                     parts = data[13:].split(":", 1)
                     if len(parts) == 2:
                         video_url, quality = parts
@@ -2006,7 +1275,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         })
                         
                 elif data == "stats":
-                    # Real-time stats
                     cache_stats = cache.get_stats()
                     rate_stats = rate_limiter.get_stats()
                     
@@ -2022,7 +1290,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
                     
                 else:
-                    # Echo back
                     await websocket.send_json({
                         "type": "message",
                         "text": f"Received: {data}",
@@ -2042,10 +1309,8 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}", exc_info=True)
 
-# Error handlers
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with detailed error information"""
     error_response = {
         "error": "HTTP Error",
         "message": exc.detail,
@@ -2055,7 +1320,6 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         "timestamp": time.time()
     }
     
-    # Add query parameters for debugging
     if request.query_params:
         error_response["query_params"] = dict(request.query_params)
     
@@ -2072,7 +1336,6 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Handle general exceptions"""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     
     error_response = {
@@ -2085,7 +1348,6 @@ async def general_exception_handler(request: Request, exc: Exception):
         "error_id": hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
     }
     
-    # Don't expose internal errors in production
     if config.DEBUG:
         error_response["debug"] = {
             "type": type(exc).__name__,
@@ -2104,10 +1366,8 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    """Favicon endpoint"""
     return FileResponse("static/favicon.ico" if os.path.exists("static/favicon.ico") else None)
 
-# Startup message
 if __name__ == "__main__":
     print("\n" + "="*70)
     print("🎬 ADVANCED YOUTUBE STREAMING API v4.0.0")
@@ -2116,13 +1376,12 @@ if __name__ == "__main__":
     print(f"🌐 Server URL: http://{config.HOST}:{config.PORT}")
     print(f"📚 Documentation: http://{config.HOST}:{config.PORT}/docs")
     print(f"📊 Health check: http://{config.HOST}:{config.PORT}/health")
-    print(f"📈 Statistics: http://{config.HOST}:{config.PORT}/stats")
     print("="*70)
     
     if config.COOKIES_FILE and os.path.exists(config.COOKIES_FILE):
-        print("🍪 Cookies file: DETECTED (age-restricted videos supported)")
+        print("🍪 Cookies file: DETECTED")
     else:
-        print("⚠️  Cookies file: NOT DETECTED (age-restricted videos may not work)")
+        print("⚠️  Cookies file: NOT DETECTED")
     
     if config.PROXY:
         print(f"🌐 Proxy: {config.PROXY}")
@@ -2134,7 +1393,6 @@ if __name__ == "__main__":
     print("🚀 Starting server...")
     print("="*70 + "\n")
     
-    # Start server
     uvicorn.run(
         app,
         host=config.HOST,

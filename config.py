@@ -11,7 +11,7 @@ class Config:
     PORT: int = int(os.getenv("PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
     
-    # Rate limiting (Render optimized)
+    # Rate limiting
     RATE_LIMIT_WINDOW: int = int(os.getenv("RATE_LIMIT_WINDOW", "10"))
     MAX_REQUESTS_PER_MINUTE: int = int(os.getenv("MAX_REQUESTS_PER_MINUTE", "30"))
     
@@ -19,16 +19,16 @@ class Config:
     YTDLP_TIMEOUT: int = 60
     COOKIES_FILE: Optional[str] = "cookies.txt" if os.path.exists("cookies.txt") else None
     
-    # Cache settings (Render optimized - less memory)
+    # Cache settings
     CACHE_TTL: int = 3600  # 1 hour
     MAX_CACHE_SIZE: int = int(os.getenv("MAX_CACHE_SIZE", "500"))
     
     # Proxy settings
     PROXY: Optional[str] = os.getenv("PROXY", None)
     
-    # Download settings (Render has memory limits)
+    # Download settings
     DOWNLOAD_DIR: str = "downloads"
-    MAX_DOWNLOAD_SIZE: int = int(os.getenv("MAX_DOWNLOAD_SIZE_MB", "100")) * 1024 * 1024
+    MAX_DOWNLOAD_SIZE: int = int(os.getenv("MAX_DOWNLOAD_SIZE_MB", "1000")) * 1024 * 1024
     
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -37,12 +37,12 @@ class Config:
     # YouTube API settings (optional)
     YOUTUBE_API_KEY: Optional[str] = os.getenv("YOUTUBE_API_KEY", None)
     
-    # Advanced settings for Render
+    # Advanced settings
     ENABLE_METRICS: bool = True
     ENABLE_HEALTH_CHECK: bool = True
     ENABLE_CACHE_STATS: bool = True
     
-    # Enhanced yt-dlp options for Render
+    # Enhanced yt-dlp options
     YTDLP_DEFAULT_OPTS: dict = {
         'quiet': True,
         'no_warnings': True,
@@ -54,7 +54,7 @@ class Config:
         'ignoreerrors': True,
         'nooverwrites': True,
         'concurrent_fragment_downloads': 2,
-        'throttledratelimit': 512000,  # 500KB/s
+        'throttledratelimit': 512000,
         'sleep_interval_requests': 2,
         'sleep_interval': 3,
         'max_sleep_interval': 15,
