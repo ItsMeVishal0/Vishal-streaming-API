@@ -1,7 +1,7 @@
 # Core dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-yt-dlp[default]==2024.11.11
+yt-dlp
 
 # HTTP/Networking
 aiohttp==3.9.1
