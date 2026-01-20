@@ -1,3 +1,4 @@
+import os
 import re
 import time
 import hashlib
@@ -12,6 +13,7 @@ from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 import psutil
 import gc
+import yt_dlp  # ✅ यह import जोड़ें
 
 from config import config
 
@@ -156,8 +158,6 @@ class YouTubeUtils:
             
             # Method 2: Try yt-dlp search
             try:
-                import yt_dlp
-                
                 ydl_opts = {
                     'quiet': True,
                     'no_warnings': True,
@@ -576,7 +576,7 @@ class YouTubeDownloader:
     def _extract_info_sync(url: str, video_type: str, quality: str) -> Dict[str, Any]:
         """Synchronous yt-dlp extraction"""
         try:
-            video_id = youtube_utils.extract_video_id(url)
+            video_id = YouTubeUtils.extract_video_id(url)
             
             # Try with cookies first
             ydl_opts = YouTubeDownloader.get_ydl_options(video_type, quality, use_cookies=True)
@@ -772,6 +772,28 @@ class YouTubeDownloader:
                 q['quality_label'] = f'{height}p'
         
         return sorted_qualities
+    
+    @staticmethod
+    def _get_quality_label(height: int) -> str:
+        """Get quality label from height"""
+        if height >= 2160:
+            return '4K'
+        elif height >= 1440:
+            return '1440p'
+        elif height >= 1080:
+            return '1080p'
+        elif height >= 720:
+            return '720p'
+        elif height >= 480:
+            return '480p'
+        elif height >= 360:
+            return '360p'
+        elif height >= 240:
+            return '240p'
+        elif height >= 144:
+            return '144p'
+        else:
+            return f'{height}p'
 
 
 # Global instances
