@@ -2,7 +2,6 @@ import os
 from typing import Optional
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 class Config:
@@ -20,7 +19,7 @@ class Config:
     COOKIES_FILE: Optional[str] = "cookies.txt" if os.path.exists("cookies.txt") else None
     
     # Cache settings
-    CACHE_TTL: int = 3600  # 1 hour
+    CACHE_TTL: int = 3600
     MAX_CACHE_SIZE: int = int(os.getenv("MAX_CACHE_SIZE", "500"))
     
     # Proxy settings
@@ -28,7 +27,7 @@ class Config:
     
     # Download settings
     DOWNLOAD_DIR: str = "downloads"
-    MAX_DOWNLOAD_SIZE: int = int(os.getenv("MAX_DOWNLOAD_SIZE_MB", "1000")) * 1024 * 1024
+    MAX_DOWNLOAD_SIZE: int = int(os.getenv("MAX_DOWNLOAD_SIZE_MB", "100")) * 1024 * 1024
     
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -36,42 +35,6 @@ class Config:
     
     # YouTube API settings (optional)
     YOUTUBE_API_KEY: Optional[str] = os.getenv("YOUTUBE_API_KEY", None)
-    
-    # Advanced settings
-    ENABLE_METRICS: bool = True
-    ENABLE_HEALTH_CHECK: bool = True
-    ENABLE_CACHE_STATS: bool = True
-    
-    # Enhanced yt-dlp options
-    YTDLP_DEFAULT_OPTS: dict = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': False,
-        'socket_timeout': 45,
-        'retries': 5,
-        'fragment_retries': 5,
-        'skip_unavailable_fragments': True,
-        'ignoreerrors': True,
-        'nooverwrites': True,
-        'concurrent_fragment_downloads': 2,
-        'throttledratelimit': 512000,
-        'sleep_interval_requests': 2,
-        'sleep_interval': 3,
-        'max_sleep_interval': 15,
-        'verbose': False,
-        'force_generic_extractor': False,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web', 'ios'],
-                'player_skip': ['configs', 'webpage'],
-            }
-        },
-        'format_sort': ['+acodec', '+vcodec', 'res', 'fps', 'size', 'br', 'asr'],
-        'check_formats': 'selected',
-        'compat_opts': ['no-youtube-unavailable-videos'],
-        'geo_bypass': True,
-        'geo_bypass_country': 'US',
-    }
 
 config = Config()
 

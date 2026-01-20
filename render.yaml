@@ -17,15 +17,9 @@ services:
         value: false
       - key: LOG_LEVEL
         value: INFO
-      - key: RATE_LIMIT_WINDOW
-        value: 10
       - key: MAX_REQUESTS_PER_MINUTE
         value: 30
       - key: MAX_CACHE_SIZE
         value: 500
       - key: MAX_DOWNLOAD_SIZE_MB
         value: 1000
-      - key: YOUTUBE_API_KEY
-        sync: false
-      - key: PROXY
-        sync: false
