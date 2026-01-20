@@ -1,32 +1,21 @@
 #!/bin/bash
 
-set -e
+echo "🚀 Starting YouTube Stream API on Render..."
 
-echo "🚀 Starting YouTube Streaming API..."
+# Create data directory
+mkdir -p /tmp/data
 
-echo "📁 Creating directories..."
-mkdir -p downloads logs static
-
-echo "🐍 Python version: $(python --version)"
-
-echo "📦 Installing dependencies..."
-pip install --upgrade pip
-pip install -r requirements.txt
-
-if [ -f "cookies.txt" ]; then
-    echo "🍪 Cookies file detected"
-else
-    echo "⚠️  No cookies.txt file found"
+# Install yt-dlp if not present
+if ! command -v yt-dlp &> /dev/null; then
+    echo "📦 Installing yt-dlp..."
+    pip install yt-dlp
 fi
 
-echo "🔧 Environment:"
-echo "   HOST: ${HOST:-0.0.0.0}"
-echo "   PORT: ${PORT:-8000}"
-echo "   DEBUG: ${DEBUG:-false}"
-
-echo "=============================================="
-echo "🌐 Server: http://0.0.0.0:${PORT:-8000}"
-echo "📚 Test: curl http://0.0.0.0:${PORT:-8000}/health"
-echo "=============================================="
-
-exec python main.py
+# Start the server
+exec uvicorn api:app \
+    --host 0.0.0.0 \
+    --port ${PORT:-8080} \
+    --workers 2 \
+    --log-level info \
+    --access-log \
+    --proxy-headers

@@ -1,25 +1,20 @@
 services:
   - type: web
-    name: youtube-streaming-api
-    env: python
-    region: singapore
+    name: youtube-stream-api
+    runtime: python
     plan: free
-    healthCheckPath: /health
     autoDeploy: true
-    buildCommand: pip install -r requirements.txt && mkdir -p downloads logs static
-    startCommand: bash start.sh
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: HOST
-        value: 0.0.0.0
       - key: PORT
-        value: 8000
+        value: 8080
       - key: DEBUG
         value: false
-      - key: LOG_LEVEL
-        value: INFO
-      - key: MAX_REQUESTS_PER_MINUTE
-        value: 30
-      - key: MAX_CACHE_SIZE
-        value: 500
-      - key: MAX_DOWNLOAD_SIZE_MB
-        value: 1000
+      - key: PROXY_LIST
+        value: '[]'
+    healthCheckPath: /health
+    disk:
+      name: data
+      mountPath: /tmp/data
+      sizeGB: 1
