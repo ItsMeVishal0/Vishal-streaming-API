@@ -1,0 +1,41 @@
+# Core dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+yt-dlp[default]==2024.11.11
+
+# HTTP/Networking
+aiohttp==3.9.1
+httpx==0.25.2
+websockets==12.0
+
+# Data processing
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Caching & Performance
+redis==5.0.1
+aiocache==0.12.0
+
+# Monitoring & Metrics
+psutil==5.9.6
+prometheus-client==0.19.0
+
+# Utilities
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+pytz==2023.3
+
+# YouTube specific
+youtube-search-python==1.6.6
+youtube-transcript-api==0.6.1
+
+# Optional (for enhanced features)
+beautifulsoup4==4.12.2
+lxml==4.9.3
+requests==2.31.0
+
+# Development
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0

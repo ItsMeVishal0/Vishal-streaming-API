@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: youtube-streaming-api
+    env: python
+    region: singapore  # or frankfurt, oregon, ohio
+    plan: free         # or starter, pro
+    healthCheckPath: /health
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt && mkdir -p downloads logs static
+    startCommand: python main.py
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8000
+      - key: DEBUG
+        value: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: RATE_LIMIT_WINDOW
+        value: 10
+      - key: MAX_REQUESTS_PER_MINUTE
+        value: 30
+      - key: MAX_CACHE_SIZE
+        value: 500
+      - key: MAX_DOWNLOAD_SIZE_MB
+        value: 100
+      - key: YOUTUBE_API_KEY
+        sync: false  # Set in Render dashboard
+      - key: PROXY
+        sync: false  # Optional proxy
