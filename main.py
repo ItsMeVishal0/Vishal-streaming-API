@@ -121,37 +121,45 @@ async def lifespan(app: FastAPI):
         await app.state.http_session.close()
 
 # Create FastAPI app with custom docs
+def get_fastapi_description(config):
+    """
+    Safe FastAPI description builder
+    (.format() + math error fix)
+    """
+
+    return f"""
+Advanced YouTube Streaming API for audio and video streaming.
+
+## Features
+- 🎵 Audio streaming with multiple quality options
+- 🎬 Video streaming up to 1080p
+- 📥 Direct downloads
+- 🔍 YouTube search
+- 📊 Detailed video information
+- 🚀 High performance with caching
+- 🔒 Rate limiting
+- 🏥 Health monitoring
+- 📈 System statistics
+
+## Authentication
+No authentication required for public endpoints.
+
+## Rate Limits
+- {config.MAX_REQUESTS_PER_MINUTE} requests per minute per IP
+- {config.RATE_LIMIT_WINDOW} second window
+
+## Cache
+- {config.MAX_CACHE_SIZE} entries max
+- {config.CACHE_TTL // 3600} hour TTL
+
+Hosted on Render.com
+"""
+
 app = FastAPI(
     title="YouTube Streaming API",
     version="4.0.0",
-    description="""
-    Advanced YouTube Streaming API for audio and video streaming.
-    
-    ## Features
-    - 🎵 Audio streaming with multiple quality options
-    - 🎬 Video streaming up to 1080p
-    - 📥 Direct downloads
-    - 🔍 YouTube search
-    - 📊 Detailed video information
-    - 🚀 High performance with caching
-    - 🔒 Rate limiting
-    - 🏥 Health monitoring
-    - 📈 System statistics
-    
-    ## Authentication
-    No authentication required for public endpoints.
-    
-    ## Rate Limits
-    - {config.MAX_REQUESTS_PER_MINUTE} requests per minute per IP
-    - {config.RATE_LIMIT_WINDOW} second window
-    
-    ## Cache
-    - {config.MAX_CACHE_SIZE} entries max
-    - {config.CACHE_TTL // 3600} hour TTL
-    
-    Hosted on Render.com
-    """.format(config=config),
-    docs_url=None,  # We'll create custom docs
+    description=get_fastapi_description(config),
+    docs_url=None,
     redoc_url="/redoc",
     openapi_url="/openapi.json",
     lifespan=lifespan
